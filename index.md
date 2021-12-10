@@ -1,17 +1,17 @@
-## Python3.6 on Macbook Pro M1
-### 2021-12-10
+# Python3.6 on Macbook Pro M1
+## 2021-12-10
 
 Installing python 3.6 on an M1 machine is possible, but it's not trivial. The trick is to use a x86-64 version of python and install all prerequisites using a brew running under x86 too.
 
 The following steps worked for me.
 
-#### Set up 'ibrew', or a x86 brew
+### Set up 'ibrew', or a x86 brew
 
 Install the x86 homebrew version. All x86-64 packages are installed in /usr/local/, while 'normal' brew saves packages in /opt/homebrew/
 * `arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
 * `echo "alias ibrew=\"arch -x86_64 /usr/local/bin/brew\"" >> ~/.zshrc`
 
-#### Install anaconda x86-64
+### Install anaconda x86-64
 
 * `ibrew install anaconda`
 * `/usr/local/anaconda3/bin/conda init zsh` (make sure not to use any arm conda version)
@@ -22,8 +22,8 @@ Install the x86 homebrew version. All x86-64 packages are installed in /usr/loca
 * `pip install numpy python-magic psycopg2`
 * Any missing requirements should be installed using `ibrew`, such as `ibrew install imagemagick freetype`
 
-## Blackmagic on a bluepill
-### 2020-06-30
+# Blackmagic on a bluepill
+## 2020-06-30
 
 To flash nrfmicro chips, you can use a bluepill with blackmagic installed.
 
@@ -53,8 +53,8 @@ Set the jumper back to 0, disconnect the uart adapter, connect the bluepill to u
 Check if the blackmagic probe is recognized with lsusb.
 
 
-## Using a trackball as scrollwheel
-### 2020-05-27
+# Using a trackball as scrollwheel
+## 2020-05-27
 Tiny scrollwheel on mice have a few problems. They are small and the movement to scroll is prone to RSI. I've been using an Elecom HUGE trackball, and I love it. Except it doesn't have a nice scroll ring as the Kensingtons have. Today I figured out how to turn the entire trackball into a huge scrollwheel by configuring libinput.
 
 To try it out, run a few xinput commands.

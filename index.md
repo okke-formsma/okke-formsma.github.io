@@ -19,8 +19,13 @@ Install the x86 homebrew version. All x86-64 packages are installed in /usr/loca
 ### Create python 3.6 x86-64 venv
 
 * `conda create --name venv_py36 python=3.6`
-* `pip install numpy python-magic psycopg2`
-* Any missing requirements should be installed using `ibrew`, such as `ibrew install imagemagick freetype`
+* `ibrew install libpq`
+* `export PKG_CONFIG_PATH="/usr/local/opt/libpq/lib/pkgconfig"`
+* `export LDFLAGS="-L/usr/local/opt/libpq/lib"`
+* `export CPPFLAGS="-I/usr/local/opt/libpq/include"`
+* `pip install psycopg2==2.8.6 --force-reinstall --no-cache-dir`
+* `ibrew install imagemagick freetype`
+* `pip install python-magic`
 
 # Blackmagic on a bluepill
 ## 2020-06-30

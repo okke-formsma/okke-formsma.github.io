@@ -8,10 +8,8 @@ The following steps worked for me.
 #### Set up 'ibrew', or a x86 brew
 
 Install the x86 homebrew version. All x86-64 packages are installed in /usr/local/, while 'normal' brew saves packages in /opt/homebrew/
-```
-arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-echo "alias ibrew=\"arch -x86_64 /usr/local/bin/brew\"" >> ~/.zshrc
-```
+* `arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+* `echo "alias ibrew=\"arch -x86_64 /usr/local/bin/brew\"" >> ~/.zshrc`
 
 #### Install anaconda x86-64
 

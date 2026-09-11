@@ -11,10 +11,6 @@ $ jj workspace root
 
 Every `jj st`, `jj commit` or `jj new` that Claude runs in "its" worktree snapshots and rewrites my real working copy. So much for isolation.
 
-### Not the fix: jj-worktree
-
-[kawaz/jj-worktree](https://github.com/kawaz/jj-worktree) shims `git worktree add` into `jj workspace add`. It only works when you launch through `jj-worktree run claude`, so the desktop app (which spawns its own `claude`) never sees it, and it targets non-colocated repos where `git worktree add` fails outright. Not my problem.
-
 ### The fix: WorktreeCreate / WorktreeRemove hooks
 
 Claude Code has `WorktreeCreate` and `WorktreeRemove` hooks that replace the built-in `git worktree` logic entirely. The docs only show them for SVN and friends, but they fire in git repos too, and the desktop app runs them as well (it even tells you to start a new session after you add one). The hook gets `{"name": ..., "cwd": ...}` on stdin and prints the directory to use.

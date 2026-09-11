@@ -87,17 +87,6 @@ And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the 
 }
 ```
 
-### Things I learned along the way
-
-* The desktop app records `branch = <worktree name>` for hook-made worktrees, so the hook creates a jj bookmark (= git branch) with the worktree's name to keep that bookkeeping honest. Git HEAD in a colocated jj workspace is detached, as usual with jj, so `git branch --show-current` is empty; the desktop app copes with that.
-* `.worktreeinclude` (gitignore syntax, lists gitignored files to carry into every worktree) is skipped when a hook creates the worktree. The hook applies it itself with git's own matcher: `git ls-files --others --ignored --exclude-from=.worktreeinclude` piped into `rsync --files-from`. Mine lists `.env`, `.mcp.json` and `.claude/settings.local.json`.
-* Git does not ignore nested worktrees by itself, so `**/.claude/worktrees/` lives in my global `~/.gitignore` (`core.excludesfile`) rather than being written into every repo's `.git/info/exclude`.
-* The remove hook starts with `cd` to the repo root: Claude Code may start it from inside the worktree it is about to delete, and jj refuses to run from a directory that no longer exists.
-* `git worktree remove --force` first, then `jj workspace forget`; `jj bookmark delete` also deletes the git branch. No `|| true` anywhere: if a step fails I want to see it.
-* When the repo has no `.jj`, the hook just makes a plain git worktree, so it is safe to have on for every repo.
-* Removing via Claude's `ExitWorktree` asks for `discard_changes: true` because Claude Code cannot vouch for a worktree it did not create with git itself.
-* Before `--colocate` existed I did this on jj 0.43 by making the git worktree first, creating the jj workspace in a sibling temp dir at the same depth (the `.jj/repo` link is relative) and moving only its `.jj` over. That worked, but jj did not consider the workspace colocated, so git HEAD never followed jj commits. If you are stuck on a release, the old version of this post is in [the repo history](https://github.com/okke-formsma/okke-formsma.github.io/commits/main/index.md).
-
 *This post was written by AI (Claude), based on a session in which it investigated and set this up for me.*
 
 # Python3.6 on Macbook Pro M1

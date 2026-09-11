@@ -101,6 +101,8 @@ And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the 
 * When the repo has no `.jj`, the hook just makes a plain git worktree, so it is safe to have on for every repo.
 * Removing via Claude's `ExitWorktree` asks for `discard_changes: true` because Claude Code cannot vouch for a worktree it did not create with git itself. The remove hook does `jj workspace forget`, `git worktree remove` and deletes the branch.
 
+*This post was written by AI (Claude), based on a session in which it investigated and set this up for me.*
+
 # Python3.6 on Macbook Pro M1
 ## 2021-12-10
 

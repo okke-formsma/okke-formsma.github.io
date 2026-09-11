@@ -34,29 +34,26 @@ Put these in `~/.claude/hooks/`:
 # with a git worktree. Requires jj > 0.45.1 (`jj workspace add --colocate`) and git >= 2.42.
 # Falls back to a plain git worktree when the repo is not a jj repo.
 set -euo pipefail
-IN=$(cat)
-NAME=$(jq -r .name <<<"$IN")
-CWD=$(jq -r .cwd <<<"$IN")
+IFS=$'\t' read -r NAME CWD < <(jq -r '[.name, .cwd] | @tsv')
 [[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad worktree name: $NAME" >&2; exit 1; }
 GITDIR=$(git -C "$CWD" rev-parse --path-format=absolute --git-common-dir)
-ROOT=$(dirname "$GITDIR")
-WT="$ROOT/.claude/worktrees"
-DIR="$WT/$NAME"
-mkdir -p "$WT"
-grep -qxF '.claude/worktrees/' "$GITDIR/info/exclude" 2>/dev/null || echo '.claude/worktrees/' >> "$GITDIR/info/exclude"
+ROOT=${GITDIR%/*}
+DIR="$ROOT/.claude/worktrees/$NAME"
+mkdir -p "${DIR%/*}"
 
 if [ -d "$ROOT/.jj" ]; then
-  jj -R "$ROOT" workspace add --colocate --name "$NAME" -r "$(git -C "$ROOT" rev-parse HEAD)" "$DIR" >&2
+  jj -R "$ROOT" workspace add --colocate "$DIR" >&2
   # Branch name == worktree name: the desktop app records branch=<name> for hook-made worktrees.
-  jj -R "$DIR" bookmark create "$NAME" -r @- >&2
+  jj -R "$DIR" --ignore-working-copy bookmark create "$NAME" -r @- >&2
 else
   git -C "$ROOT" worktree add --quiet --no-track -b "$NAME" "$DIR" HEAD >&2
 fi
 
-# .worktreeinclude is not processed when a hook creates the worktree; copy gitignored config by hand.
-for f in .env .mcp.json .claude/settings.local.json; do
-  [ -f "$ROOT/$f" ] && { mkdir -p "$DIR/$(dirname "$f")"; cp "$ROOT/$f" "$DIR/$f"; }
-done
+# Claude Code skips .worktreeinclude for hook-made worktrees, so apply it here with git's own matcher.
+if [ -f "$ROOT/.worktreeinclude" ]; then
+  git -C "$ROOT" ls-files -z --others --ignored --exclude-from="$ROOT/.worktreeinclude" |
+    rsync -a --from0 --files-from=- "$ROOT/" "$DIR/" >&2
+fi
 echo "$DIR"
 ```
 
@@ -64,19 +61,19 @@ echo "$DIR"
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-IN=$(cat)
-DIR=$(jq -r .worktree_path <<<"$IN")
+DIR=$(jq -r .worktree_path)
 [ -d "$DIR" ] || exit 0
 GITDIR=$(git -C "$DIR" rev-parse --path-format=absolute --git-common-dir)
-ROOT=$(dirname "$GITDIR")
-NAME=$(basename "$DIR")
-if [ -d "$DIR/.jj" ] && [ -d "$ROOT/.jj" ]; then
-  jj -R "$ROOT" workspace forget "$NAME" >&2 || true   # also drops the colocated git worktree
-  jj -R "$ROOT" bookmark delete "$NAME" >&2 || true
+ROOT=${GITDIR%/*}
+NAME=${DIR##*/}
+cd "$ROOT"   # the hook may be started from inside the worktree we are about to delete
+git -C "$ROOT" worktree remove --force "$DIR" >&2
+if [ -d "$ROOT/.jj" ]; then
+  jj -R "$ROOT" --ignore-working-copy workspace forget "$NAME" >&2
+  jj -R "$ROOT" --ignore-working-copy bookmark delete "$NAME" >&2   # also deletes the git branch
+else
+  git -C "$ROOT" branch -D "$NAME" >&2
 fi
-git -C "$ROOT" worktree remove --force "$DIR" >&2 2>/dev/null || rm -rf "$DIR"
-git -C "$ROOT" worktree prune >&2
-git -C "$ROOT" branch -D "$NAME" >&2 2>/dev/null || true
 ```
 
 And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the repo's `.claude/settings.json`: the desktop app only auto-trusts hook-made worktrees when the hook comes from user settings, otherwise every new worktree shows a trust prompt.
@@ -93,8 +90,10 @@ And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the 
 ### Things I learned along the way
 
 * The desktop app records `branch = <worktree name>` for hook-made worktrees, so the hook creates a jj bookmark (= git branch) with the worktree's name to keep that bookkeeping honest. Git HEAD in a colocated jj workspace is detached, as usual with jj, so `git branch --show-current` is empty; the desktop app copes with that.
-* `.worktreeinclude` is skipped when a hook creates the worktree, so the hook copies `.env` and `.mcp.json` itself.
-* `jj workspace forget` on a colocated child workspace also removes its git worktree, so the remove hook is short too.
+* `.worktreeinclude` (gitignore syntax, lists gitignored files to carry into every worktree) is skipped when a hook creates the worktree. The hook applies it itself with git's own matcher: `git ls-files --others --ignored --exclude-from=.worktreeinclude` piped into `rsync --files-from`. Mine lists `.env`, `.mcp.json` and `.claude/settings.local.json`.
+* Git does not ignore nested worktrees by itself, so `**/.claude/worktrees/` lives in my global `~/.gitignore` (`core.excludesfile`) rather than being written into every repo's `.git/info/exclude`.
+* The remove hook starts with `cd` to the repo root: Claude Code may start it from inside the worktree it is about to delete, and jj refuses to run from a directory that no longer exists.
+* `git worktree remove --force` first, then `jj workspace forget`; `jj bookmark delete` also deletes the git branch. No `|| true` anywhere: if a step fails I want to see it.
 * When the repo has no `.jj`, the hook just makes a plain git worktree, so it is safe to have on for every repo.
 * Removing via Claude's `ExitWorktree` asks for `discard_changes: true` because Claude Code cannot vouch for a worktree it did not create with git itself.
 * Before `--colocate` existed I did this on jj 0.43 by making the git worktree first, creating the jj workspace in a sibling temp dir at the same depth (the `.jj/repo` link is relative) and moving only its `.jj` over. That worked, but jj did not consider the workspace colocated, so git HEAD never followed jj commits. If you are stuck on a release, the old version of this post is in [the repo history](https://github.com/okke-formsma/okke-formsma.github.io/commits/main/index.md).

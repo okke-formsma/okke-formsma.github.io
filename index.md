@@ -19,14 +19,23 @@ Every `jj st`, `jj commit` or `jj new` that Claude runs in "its" worktree snapsh
 
 Claude Code has `WorktreeCreate` and `WorktreeRemove` hooks that replace the built-in `git worktree` logic entirely. The docs only show them for SVN and friends, but they fire in git repos too, and the desktop app runs them as well (it even tells you to start a new session after you add one). The hook gets `{"name": ..., "cwd": ...}` on stdin and prints the directory to use.
 
-My create hook makes a normal git worktree *and* a jj child workspace in the same directory. jj 0.43 refuses `jj workspace add` into a non-empty directory and does not have `--colocate` yet (that is in unreleased jj), so it creates the workspace in a sibling temp dir at the same depth and moves only its `.jj` over. The `.jj/repo` link is relative, hence the same-depth trick.
+The create hook is essentially one command: `jj workspace add --colocate`, which makes a jj child workspace *and* the matching git worktree in one go. Every jj command in there then moves the worktree's git HEAD along, exactly like the main checkout.
+
+**Required versions:** `--colocate` is not in a jj release yet (latest is 0.45.1). You need jj from the main branch, and git 2.42 or newer because jj uses `git worktree add --orphan`. On a Mac:
+
+```
+brew unlink jj          # if you have the stable one
+brew install --HEAD jj  # builds from source, takes a few minutes
+brew upgrade --fetch-HEAD jj   # later, to pull in newer commits
+```
 
 Put these in `~/.claude/hooks/`:
 
 `jj-worktree-create.sh`
 ```bash
 #!/usr/bin/env bash
-# WorktreeCreate hook: git worktree + jj child workspace in one directory.
+# WorktreeCreate hook: one jj child workspace per Claude Code session, colocated
+# with a git worktree. Requires jj > 0.45.1 (`jj workspace add --colocate`) and git >= 2.42.
 # Falls back to a plain git worktree when the repo is not a jj repo.
 set -euo pipefail
 IN=$(cat)
@@ -37,24 +46,15 @@ GITDIR=$(git -C "$CWD" rev-parse --path-format=absolute --git-common-dir)
 ROOT=$(dirname "$GITDIR")
 WT="$ROOT/.claude/worktrees"
 DIR="$WT/$NAME"
-# Branch name == worktree name: the desktop app records branch=<name> for hook-made worktrees.
-BRANCH="$NAME"
 mkdir -p "$WT"
 grep -qxF '.claude/worktrees/' "$GITDIR/info/exclude" 2>/dev/null || echo '.claude/worktrees/' >> "$GITDIR/info/exclude"
-grep -qxF '.jj/' "$GITDIR/info/exclude" 2>/dev/null || echo '.jj/' >> "$GITDIR/info/exclude"
-
-git -C "$ROOT" worktree add --quiet --no-track -b "$BRANCH" "$DIR" HEAD >&2
 
 if [ -d "$ROOT/.jj" ]; then
-  # jj 0.43 has no `workspace add --colocate`; create the workspace next to the
-  # git worktree (same depth, so the relative .jj/repo link stays valid) and
-  # move only its metadata in. Files are already checked out by git.
-  TMP="$WT/.tmp-$NAME"
-  rm -rf "$TMP"
-  jj -R "$ROOT" workspace add --name "$NAME" -r "$(git -C "$ROOT" rev-parse HEAD)" "$TMP" >&2
-  mv "$TMP/.jj" "$DIR/.jj"
-  rm -rf "$TMP"
-  jj -R "$DIR" status >/dev/null 2>&1 || { echo "jj workspace at $DIR is not healthy" >&2; exit 1; }
+  jj -R "$ROOT" workspace add --colocate --name "$NAME" -r "$(git -C "$ROOT" rev-parse HEAD)" "$DIR" >&2
+  # Branch name == worktree name: the desktop app records branch=<name> for hook-made worktrees.
+  jj -R "$DIR" bookmark create "$NAME" -r @- >&2
+else
+  git -C "$ROOT" worktree add --quiet --no-track -b "$NAME" "$DIR" HEAD >&2
 fi
 
 # .worktreeinclude is not processed when a hook creates the worktree; copy gitignored config by hand.
@@ -75,10 +75,12 @@ GITDIR=$(git -C "$DIR" rev-parse --path-format=absolute --git-common-dir)
 ROOT=$(dirname "$GITDIR")
 NAME=$(basename "$DIR")
 if [ -d "$DIR/.jj" ] && [ -d "$ROOT/.jj" ]; then
-  jj -R "$ROOT" workspace forget "$NAME" >&2 || true
+  jj -R "$ROOT" workspace forget "$NAME" >&2 || true   # also drops the colocated git worktree
+  jj -R "$ROOT" bookmark delete "$NAME" >&2 || true
 fi
-git -C "$ROOT" worktree remove --force "$DIR" >&2
-git -C "$ROOT" branch -D "$NAME" >&2 || true
+git -C "$ROOT" worktree remove --force "$DIR" >&2 2>/dev/null || rm -rf "$DIR"
+git -C "$ROOT" worktree prune >&2
+git -C "$ROOT" branch -D "$NAME" >&2 2>/dev/null || true
 ```
 
 And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the repo's `.claude/settings.json`: the desktop app only auto-trusts hook-made worktrees when the hook comes from user settings, otherwise every new worktree shows a trust prompt.
@@ -94,12 +96,12 @@ And wire them up in `~/.claude/settings.json`. Use the *user* settings, not the 
 
 ### Things I learned along the way
 
-* The branch is named after the worktree, without the usual `claude/` prefix. The desktop app records `branch = <worktree name>` for hook-made worktrees, so this keeps its bookkeeping honest. PR detection uses `git branch --show-current` in the session directory anyway.
+* The desktop app records `branch = <worktree name>` for hook-made worktrees, so the hook creates a jj bookmark (= git branch) with the worktree's name to keep that bookkeeping honest. Git HEAD in a colocated jj workspace is detached, as usual with jj, so `git branch --show-current` is empty; the desktop app copes with that.
 * `.worktreeinclude` is skipped when a hook creates the worktree, so the hook copies `.env` and `.mcp.json` itself.
-* The hook adds `.jj/` and `.claude/worktrees/` to `.git/info/exclude`, which is shared by all worktrees.
-* The child workspace is only semi-colocated on jj 0.43: jj is fully isolated and correct, but git HEAD in the worktree does not move when jj commits, so the desktop diff pane shows jj commits as uncommitted changes. `jj workspace add --colocate` in the next jj release should fix that and shrink the create hook to two lines.
+* `jj workspace forget` on a colocated child workspace also removes its git worktree, so the remove hook is short too.
 * When the repo has no `.jj`, the hook just makes a plain git worktree, so it is safe to have on for every repo.
-* Removing via Claude's `ExitWorktree` asks for `discard_changes: true` because Claude Code cannot vouch for a worktree it did not create with git itself. The remove hook does `jj workspace forget`, `git worktree remove` and deletes the branch.
+* Removing via Claude's `ExitWorktree` asks for `discard_changes: true` because Claude Code cannot vouch for a worktree it did not create with git itself.
+* Before `--colocate` existed I did this on jj 0.43 by making the git worktree first, creating the jj workspace in a sibling temp dir at the same depth (the `.jj/repo` link is relative) and moving only its `.jj` over. That worked, but jj did not consider the workspace colocated, so git HEAD never followed jj commits. If you are stuck on a release, the old version of this post is in [the repo history](https://github.com/okke-formsma/okke-formsma.github.io/commits/main/index.md).
 
 *This post was written by AI (Claude), based on a session in which it investigated and set this up for me.*
 
